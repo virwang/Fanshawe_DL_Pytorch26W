@@ -1,5 +1,16 @@
 import streamlit as st
 from groq import Groq
+from google.colab import userdata
+
+# --- Get API key via Colab Secrets ---
+try:
+
+    api_key_from_colab = userdata.get("GROQ_API_KEY")
+    print(api_key_from_colab)
+except:
+    api_key_from_colab = None
+    print("❌ Please enter your API Key in the sidebar!")
+
    
 # --- 1. Basic Configuration ---
 st.set_page_config(page_title="AI Food Guide", page_icon="🍣")
@@ -8,11 +19,14 @@ st.set_page_config(page_title="AI Food Guide", page_icon="🍣")
 with st.sidebar:
     st.title("🛠️ Settings")
     # set colab key as default, otherwise set api key as None
+
     api_key = st.text_input("Enter Groq API Key", 
                             value=api_key_from_colab if api_key_from_colab else "",
                             type="password")
+    print(api_key)
     if not api_key:
-        st.info("Get your key at [console.groq.com](https://console.groq.com/)")  
+        st.info("Get your key at [console.groq.com](https://console.groq.com/)")
+
 
 
 # --- 2. Llama Core Function ---
@@ -29,7 +43,7 @@ def ask_llama_chef(food_name, api_key):
         Tone: Humorous and friendly. Keep it under 150 words.
         """
         completion = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
         )
