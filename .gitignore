@@ -7,6 +7,7 @@ data/
 *.sqlite
 *.npy
 *.pkl
+*.pth
 
 ### --- Python related ---
 __pycache__/
