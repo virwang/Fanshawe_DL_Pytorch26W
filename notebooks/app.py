@@ -1,15 +1,14 @@
+from torchvision import models, transforms
 import streamlit as st
 import torch
 import torch.nn as nn
-from torchvision import models, transforms
+
 from PIL import Image
 from groq import Groq
+from google.colab import userdata
 import os
 
-# basic page config
-st.set_page_config(page_title="Flavor Bridge: Identify Dishes and Unlock Their Stories", page_icon=":plate_with_cutlery:", layout="centered")
-
-# make sure this list matches the order of classes in your training dataset
+# selected food list (must match training classes and order)
 FOOD_CLASSES = ['apple_pie',
  'baklava',
  'bibimbap',
@@ -51,47 +50,52 @@ FOOD_CLASSES = ['apple_pie',
  'tiramisu',
  'waffles']
 
-
-# load model and cache it to avoid reloading on every interaction
+# --- 2. load trained model ---
 @st.cache_resource
-def load_my_model(model_path):
+def load_vision_model(model_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     # recreate the model architecture (must match training)
-    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, len(FOOD_CLASSES))
-    
-    # load weights and move model to device
-    state_dict = torch.load(model_path, map_location=device)
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
-    return model, device
 
-# image preprocessing function to match training transformations
-def preprocess_image(image):
-    transform = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
-    
-    return transform(image).unsqueeze(0)
+    model = models.resnet50(weights=None)
+    model.fc = nn.Sequential(
+        nn.Linear(model.fc.in_features, 1024), 
+        nn.BatchNorm1d(1024),
+        nn.ReLU(),
+        nn.Dropout(0.3),
+        nn.Linear(1024, 512),
+        nn.BatchNorm1d(512),
+        nn.ReLU(),
+        nn.Linear(512, len(FOOD_CLASSES))
+    )
 
-# Llama core function to generate cultural story based on food name and user origin
+    # load the weights and move model to device
+    try:
+        state_dict = torch.load(model_path, map_location=device)
+        model.load_state_dict(state_dict)
+        model.to(device)
+        model.eval()
+        return model, device
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        return None, device
+
+# Llama culture translator function
 def ask_llama_chef(food_name, user_origin, api_key):
+    if not api_key:
+        return "❌ Please enter your API Key in the sidebar!"
+    
     try:
         client = Groq(api_key=api_key)
+        # person from user_origin is looking at food_name, explain it in a culturally relevant way
         prompt = f"""
-        Context: A traveler from {user_origin} is seeing "{food_name}" for the first time.
-        Task: Explain this dish to them.
-        1. Compare the taste/texture to foods common in {user_origin}.
-        2. Briefly explain its history/origin.
-        3. Give one tip on how to eat it properly.
-        Tone: Enthusiastic, cultural, and helpful. Keep it under 150 words.
+        Context: You are a culinary cultural expert. A person from {user_origin} is looking at a dish called "{food_name}".
+        
+        Task: 
+        1. Describe the taste and texture using analogies that someone from {user_origin} would easily understand.
+        2. Briefly explain the history of this dish.
+        3. Explain any unique cultural "fun facts" (e.g., if it's like Swiss surströmming or blue cheese).
+        
+        Tone: Friendly and storytelling. Language: English. Keep it under 150 words.
         """
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -100,42 +104,62 @@ def ask_llama_chef(food_name, user_origin, api_key):
         )
         return completion.choices[0].message.content
     except Exception as e:
-        return f"LLM Error: {str(e)}"
+        return f"Error: {str(e)}"
 
-# UI interface
-st.title("🍴 PlateAI: Cultural Food Guide")
-st.markdown("Upload a photo of a dish, and I'll tell you what it is and its story!")
+# --- 4. UI  ---
+st.set_page_config(page_title="Flavor Bridge", page_icon="🌉")
+st.title("🌉 Flavor Bridge")
+st.markdown("### *Crossing Cultures, One Plate at a Time*")
 
+# side bar settings
 with st.sidebar:
-    st.header("⚙️ Settings")
-    api_key = st.text_input("Groq API Key", type="password")
+    st.header("⚙️ Configuration")
+    # user input for cultural background
     user_home = st.text_input("Where are you from?", "Canada")
-    model_file = "/content/drive/MyDrive/food_best.pth" # content/drive/MyDrive/food_best.pth
+    
+    # API Key 
+    try:
+        default_key = userdata.get("GROQ_API_KEY")
+    except:
+        default_key = ""
+    api_key = st.text_input("Groq API Key", value=default_key, type="password")
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+#file upload
+uploaded_file = st.file_uploader("Upload a food photo...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    img = Image.open(uploaded_file).convert('RGB')
-    st.image(img, caption='Uploaded Dish', use_container_width=True)
+    image = Image.open(uploaded_file).convert('RGB')
+    st.image(image, caption='Uploaded Image', use_container_width=True)
     
-    if st.button("Analyze This Dish"):
-        if not api_key:
-            st.error("Please enter Groq API Key in the sidebar!")
+    if st.button("Analyze & Translate Culture"):
+    
+        # Image classification
+        # model_path = "/content/drive/MyDrive/FlavorBridge_Project/food_best.pth" 
+        model_path ="food_best.pth" # local path for Colab
+    
+        model, device = load_vision_model(model_path)
+        
+        if model:
+            # image preprocessing (must match training transformations)
+            preprocess = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+            input_tensor = preprocess(image).unsqueeze(0).to(device)
+            
+            with torch.no_grad():
+                output = model(input_tensor)
+                _, pred = torch.max(output, 1)
+                food_name = FOOD_CLASSES[pred.item()].replace("_", " ")
+            
+            st.success(f"Detected: **{food_name.title()}**")
+            
+    
+            #LLM story generation
+            with st.spinner(f"Llama is translating the flavor for someone from {user_home}..."):
+                explanation = ask_llama_chef(food_name, user_home, api_key)
+                st.info(explanation)
         else:
-            with st.spinner("Classifying food..."):
-            
-                # print("Loading model and classifying image...")
-                model, device = load_my_model(model_file)
-                input_tensor = preprocess_image(img).to(device)
-                
-                with torch.no_grad():
-                    outputs = model(input_tensor)
-                    _, pred = torch.max(outputs, 1)
-                    food_name = FOOD_CLASSES[pred.item()]
-                
-                st.success(f"I think this is: **{food_name.replace('_', ' ').title()}**")
-            
-            with st.spinner("Generating cultural story..."):
-                #LLM story generation
-                story = ask_llama_chef(food_name, user_home, api_key)
-                st.info(story)
+            st.error("Model file not found! Check your Google Drive path.")
