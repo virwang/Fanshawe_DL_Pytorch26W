@@ -1,3 +1,6 @@
+# app.py
+# Flavor Bridge - PyTorch version with Top-3 predictions UI
+
 from torchvision import models, transforms
 import streamlit as st
 import torch
@@ -7,9 +10,10 @@ from PIL import Image
 from groq import Groq
 from google.colab import userdata
 import os
+import numpy as np
 
 # selected food list (must match training classes and order)
-FOOD_CLASSES = ['apple_pie',
+FOOD_CLASSES = sorted(['apple_pie',
  'baklava',
  'bibimbap',
  'ceviche',
@@ -48,17 +52,20 @@ FOOD_CLASSES = ['apple_pie',
  'sushi',
  'tacos',
  'tiramisu',
- 'waffles']
+ 'waffles'])
 
 # --- 2. load trained model ---
 @st.cache_resource
 def load_vision_model(model_path):
+    """
+    Recreate the model architecture and load state_dict.
+    Returns (model, device) or (None, device) on error.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # recreate the model architecture (must match training)
-
     model = models.resnet50(weights=None)
     model.fc = nn.Sequential(
-        nn.Linear(model.fc.in_features, 1024), 
+        nn.Linear(model.fc.in_features, 1024),
         nn.BatchNorm1d(1024),
         nn.ReLU(),
         nn.Dropout(0.3),
@@ -71,6 +78,9 @@ def load_vision_model(model_path):
     # load the weights and move model to device
     try:
         state_dict = torch.load(model_path, map_location=device)
+        # If you saved a dict with keys like 'model_state_dict', adapt accordingly:
+        if isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+            state_dict = state_dict['model_state_dict']
         model.load_state_dict(state_dict)
         model.to(device)
         model.eval()
@@ -124,6 +134,9 @@ with st.sidebar:
         default_key = ""
     api_key = st.text_input("Groq API Key", value=default_key, type="password")
 
+    # Debug toggle
+    debug_mode = st.checkbox("Show debug info", value=False)
+
 #file upload
 uploaded_file = st.file_uploader("Upload a food photo...", type=["jpg", "jpeg", "png"])
 
@@ -150,23 +163,43 @@ if uploaded_file:
             input_tensor = preprocess(image).unsqueeze(0).to(device)
             
             with torch.no_grad():
-                output = model(input_tensor)
+                output = model(input_tensor)  # logits shape (1, num_classes)
 
-                # Convert logits → probabilities
-                probs = torch.softmax(output, dim=1)
+                # Convert logits → probabilities (CPU numpy for UI)
+                probs = torch.softmax(output, dim=1)  # tensor on device
+                probs_cpu = probs.cpu().numpy().squeeze()  # shape (num_classes,)
 
-                # Get predicted class index
-                pred_idx = torch.argmax(probs, dim=1).item()
+                # Get top-3 indices and probabilities
+                topk = 3
+                topk_idxs = np.argsort(probs_cpu)[::-1][:topk]  # descending
+                topk_probs = probs_cpu[topk_idxs]
 
-                # Confidence score (0–100%)
-                confidence = probs[0][pred_idx].item() * 100
+                # Top-1 predicted class
+                pred_idx = int(topk_idxs[0])
+                confidence = float(topk_probs[0]) * 100.0
+                food_name = FOOD_CLASSES[pred_idx].replace("_", " ").title()
 
-                # Map index → class name
-                food_name = FOOD_CLASSES[pred_idx].replace("_", " ")
+                # Display Top-1
+                st.success(f"Detected: **{food_name}** ({confidence:.2f}% confidence)")
 
-                        
-                st.success(f"Detected: **{food_name.title()}** ({confidence:.2f}% confidence)")         
-    
+                # Display Top-3 with percentage bars
+                st.markdown("**Top 3 predictions**")
+                # Use columns to show label + progress bar + percentage neatly
+                for rank, (idx, prob) in enumerate(zip(topk_idxs, topk_probs), start=1):
+                    label = FOOD_CLASSES[int(idx)].replace("_", " ").title()
+                    pct = float(prob) * 100.0
+                    # Layout: label and percentage on one line, progress bar below
+                    st.write(f"{rank}. **{label}** — {pct:.2f}%")
+                    # st.progress expects 0.0-1.0
+                    st.progress(min(max(float(prob), 0.0), 1.0))
+
+                # Optional debug info
+                if debug_mode:
+                    st.write("Model output shape:", output.shape)
+                    st.write("Raw top-10 probabilities:", probs_cpu.argsort()[::-1][:10])
+                    st.write("Top-3 indices:", topk_idxs)
+                    st.write("Top-3 probs:", topk_probs)
+
             #LLM story generation
             with st.spinner(f"Llama is translating the flavor for someone from {user_home}..."):
                 explanation = ask_llama_chef(food_name, user_home, api_key)
