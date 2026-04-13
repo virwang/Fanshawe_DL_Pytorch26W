@@ -151,11 +151,21 @@ if uploaded_file:
             
             with torch.no_grad():
                 output = model(input_tensor)
-                _, pred = torch.max(output, 1)
-                food_name = FOOD_CLASSES[pred.item()].replace("_", " ")
-            
-            st.success(f"Detected: **{food_name.title()}**")
-            
+
+                # Convert logits → probabilities
+                probs = torch.softmax(output, dim=1)
+
+                # Get predicted class index
+                pred_idx = torch.argmax(probs, dim=1).item()
+
+                # Confidence score (0–100%)
+                confidence = probs[0][pred_idx].item() * 100
+
+                # Map index → class name
+                food_name = FOOD_CLASSES[pred_idx].replace("_", " ")
+
+                        
+                st.success(f"Detected: **{food_name.title()}** ({confidence:.2f}% confidence)")         
     
             #LLM story generation
             with st.spinner(f"Llama is translating the flavor for someone from {user_home}..."):
