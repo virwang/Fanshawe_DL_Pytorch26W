@@ -135,7 +135,7 @@ with st.sidebar:
     api_key = st.text_input("Groq API Key", value=default_key, type="password")
 
     # Debug toggle
-    debug_mode = st.checkbox("Show debug info", value=False)
+    # debug_mode = st.checkbox("Show debug info", value=False)
 
 #file upload
 uploaded_file = st.file_uploader("Upload a food photo...", type=["jpg", "jpeg", "png"])
@@ -194,11 +194,11 @@ if uploaded_file:
                     st.progress(min(max(float(prob), 0.0), 1.0))
 
                 # Optional debug info
-                if debug_mode:
-                    st.write("Model output shape:", output.shape)
-                    st.write("Raw top-10 probabilities:", probs_cpu.argsort()[::-1][:10])
-                    st.write("Top-3 indices:", topk_idxs)
-                    st.write("Top-3 probs:", topk_probs)
+                #if debug_mode:
+                #    st.write("Model output shape:", output.shape)
+                #   st.write("Raw top-10 probabilities:", probs_cpu.argsort()[::-1][:10])
+                #    st.write("Top-3 indices:", topk_idxs)
+                #    st.write("Top-3 probs:", topk_probs)
 
             #LLM story generation
             with st.spinner(f"Llama is translating the flavor for someone from {user_home}..."):
