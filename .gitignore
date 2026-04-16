@@ -8,6 +8,11 @@ data/
 *.npy
 *.pkl
 *.pth
+*.env
+*.png
+*.jpg
+*.zip
+*.pdf
 
 ### --- Python related ---
 __pycache__/

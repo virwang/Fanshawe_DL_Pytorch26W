@@ -12,6 +12,9 @@ from google.colab import userdata
 import os
 import numpy as np
 
+# Get API key from environment variable (set in .env file or Colab secrets)
+from dotenv import load_dotenv
+
 # selected food list (must match training classes and order)
 FOOD_CLASSES = sorted(['apple_pie',
  'baklava',
@@ -53,6 +56,30 @@ FOOD_CLASSES = sorted(['apple_pie',
  'tacos',
  'tiramisu',
  'waffles'])
+
+# --- 1. setup --- get api key from environment variable (set in .env file or Colab secrets)
+def load_api_key():
+    # 1. Try .env file
+    load_dotenv()
+    key = os.getenv("GROQ_API_KEY")
+    if key:
+        return key
+
+    # 2. Try Colab Secrets
+    try:
+        key = userdata.get("GROQ_API_KEY")
+        if key:
+            return key
+    except:
+        pass
+
+    # 3. Try Streamlit Secrets
+    try:
+        key = st.secrets["GROQ_API_KEY"]
+        return key
+    except:
+        return None
+
 
 # --- 2. load trained model ---
 @st.cache_resource
@@ -128,11 +155,7 @@ with st.sidebar:
     user_home = st.text_input("Where are you from?", "Canada")
     
     # API Key 
-    try:
-        default_key = userdata.get("GROQ_API_KEY")
-    except:
-        default_key = ""
-    api_key = st.text_input("Groq API Key", value=default_key, type="password")
+    api_key = load_api_key()
 
     # Debug toggle
     # debug_mode = st.checkbox("Show debug info", value=False)
